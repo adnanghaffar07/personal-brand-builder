@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Sparkles, Target, Zap } from "lucide-react";
 import ChatMessage from "./ChatMessage";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatMessage {
   id: string;
@@ -40,6 +40,60 @@ const ChatInterface = ({
   searchCriteria 
 }: ChatInterfaceProps) => {
   const [query, setQuery] = useState("");
+  const { toast } = useToast();
+
+  const parseSearchCriteria = (parsedData: string) => {
+    console.log('Raw parsed data:', parsedData);
+    
+    // Parse the criteria from the string
+    const criteria: SearchCriteria = {};
+
+    // Extract state/location - keep as is
+    const stateMatch = parsedData.match(/state\s*=\s*([^\n]+)/i);
+    if (stateMatch) {
+      criteria.location = stateMatch[1].trim();
+    }
+
+    // Extract role/job titles - format as "CEO OR Founder"
+    const roleMatch = parsedData.match(/role\s*=\s*([^\n]+)/i);
+    if (roleMatch) {
+      let roleText = roleMatch[1].trim();
+      // Remove parentheses if present
+      roleText = roleText.replace(/^\(|\)$/g, '');
+      // Keep OR format as is
+      criteria.jobTitles = [roleText];
+    }
+
+    // Extract company size - keep the operator format ">= 50"
+    const companySizeMatch = parsedData.match(/company_size\s*([><=]+)\s*([^\n]+)/i);
+    if (companySizeMatch) {
+      criteria.companySize = `${companySizeMatch[1]} ${companySizeMatch[2].trim()}`;
+    }
+
+    // Extract industry - keep as is
+    const industryMatch = parsedData.match(/industry\s*=\s*([^\n]+)/i);
+    if (industryMatch) {
+      criteria.industry = industryMatch[1].trim();
+    }
+
+    // Add estimated matches (mock data for now)
+    criteria.estimatedMatches = Math.floor(Math.random() * 500) + 100;
+
+    console.log('Parsed criteria:', criteria);
+    
+    // Save to localStorage with the proper format for database
+    const dbFormat = {
+      state: criteria.location || "",
+      role: criteria.jobTitles ? criteria.jobTitles[0] : "",
+      company_size: criteria.companySize || "",
+      industry: criteria.industry || ""
+    };
+    
+    localStorage.setItem('searchCriteria', JSON.stringify(criteria));
+    localStorage.setItem('searchCriteriaDB', JSON.stringify(dbFormat));
+    
+    return criteria;
+  };
 
   const handleSendMessage = async () => {
     if (!query.trim()) return;
@@ -64,17 +118,37 @@ const ChatInterface = ({
       });
 
       const data = await res.json();
+      console.log('API response:', data);
+
+      // Parse the criteria properly
+      const parsedCriteria = parseSearchCriteria(data.parsed);
+      
+      // Update search criteria with merged data
+      setSearchCriteria(prev => ({ ...prev, ...parsedCriteria }));
 
       const botResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        message: `Perfect! Based on your query: "${userMessage.message}", here are some LinkedIn search filters:\n\n${data.parsed || 'No filters found. Please rephrase your request.'}`,
+        message: `Perfect! Based on your query: "${userMessage.message}", I've identified these LinkedIn search filters:
+
+${parsedCriteria.location ? `📍 Location: ${parsedCriteria.location}` : ''}
+${parsedCriteria.jobTitles && parsedCriteria.jobTitles.length > 0 ? `💼 Job Titles: ${parsedCriteria.jobTitles.join(', ')}` : ''}
+${parsedCriteria.companySize ? `🏢 Company Size: ${parsedCriteria.companySize}` : ''}
+${parsedCriteria.industry ? `🏭 Industry: ${parsedCriteria.industry}` : ''}
+${parsedCriteria.estimatedMatches ? `📊 Estimated Matches: ${parsedCriteria.estimatedMatches}` : ''}
+
+You can now save these criteria or fetch LinkedIn data from the panel on the right!`,
         isUser: false,
         timestamp: new Date(),
       };
 
       setMessages(prev => [...prev, botResponse]);
-      setSearchCriteria({ ...searchCriteria, ...data.parsed });
+      
+      toast({
+        title: "Search criteria updated!",
+        description: "Your LinkedIn search filters have been successfully parsed and are ready to use.",
+      });
     } catch (error) {
+      console.error('Error parsing filters:', error);
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         message: "I apologize, but I'm experiencing some technical difficulties. Please try again in a moment.",
@@ -82,6 +156,12 @@ const ChatInterface = ({
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);
+      
+      toast({
+        title: "Error",
+        description: "Failed to parse your request. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }

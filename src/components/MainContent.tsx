@@ -1,8 +1,8 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ChatInterface from "./ChatInterface";
 import SearchCriteriaComponent from "./SearchCriteria";
 import LinkedInDataTable from "./LinkedInDataTable";
+import { useToast } from "@/hooks/use-toast";
 
 interface MainContentProps {
   sidebarOpen: boolean;
@@ -40,6 +40,20 @@ const MainContent = ({ sidebarOpen }: MainContentProps) => {
   const [linkedInData, setLinkedInData] = useState<LinkedInProfile[]>([]);
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [showDataTable, setShowDataTable] = useState(false);
+  const { toast } = useToast();
+
+  // Load search criteria from localStorage on component mount
+  useEffect(() => {
+    const savedCriteria = localStorage.getItem('searchCriteria');
+    if (savedCriteria) {
+      try {
+        const parsedCriteria = JSON.parse(savedCriteria);
+        setSearchCriteria(parsedCriteria);
+      } catch (error) {
+        console.error('Error parsing saved criteria:', error);
+      }
+    }
+  }, []);
 
   const dummyLinkedInData: LinkedInProfile[] = [
     {
@@ -84,6 +98,83 @@ const MainContent = ({ sidebarOpen }: MainContentProps) => {
     }
   ];
 
+  const handleSaveSearchCriteria = async () => {
+    // Get the properly formatted criteria from localStorage
+    const savedDbCriteria = localStorage.getItem('searchCriteriaDB');
+    let alertData = {
+      state: "",
+      role: "",
+      company_size: "",
+      industry: ""
+    };
+    
+    if (savedDbCriteria) {
+      try {
+        alertData = JSON.parse(savedDbCriteria);
+      } catch (error) {
+        console.error('Error parsing saved DB criteria:', error);
+      }
+    }
+
+    // Check if we have any criteria to save
+    if (!alertData.state && !alertData.role && !alertData.company_size && !alertData.industry) {
+      toast({
+        title: "No criteria to save",
+        description: "Please start a conversation to generate search criteria first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      console.log('Sending alert data:', alertData);
+
+      const response = await fetch('http://localhost:5001/api/save-alert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(alertData)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Alert saved successfully:', result);
+        
+        toast({
+          title: "Search criteria saved!",
+          description: "Your LinkedIn search criteria have been successfully saved to the database.",
+        });
+        
+        // Also save to localStorage as backup
+        const criteriaData = {
+          criteria: alertData,
+          savedAt: new Date().toISOString(),
+          id: `search-${Date.now()}`
+        };
+
+        const savedCriteriaHistory = localStorage.getItem('savedSearchCriteria');
+        const existingCriteria = savedCriteriaHistory ? JSON.parse(savedCriteriaHistory) : [];
+        existingCriteria.push(criteriaData);
+        localStorage.setItem('savedSearchCriteria', JSON.stringify(existingCriteria));
+      } else {
+        console.error('Failed to save alert:', response.statusText);
+        toast({
+          title: "Save failed",
+          description: "Failed to save search criteria. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error saving alert:', error);
+      toast({
+        title: "Error",
+        description: "Error saving search criteria. Please check your connection and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleFetchLinkedInData = async () => {
     setIsFetchingData(true);
     setShowDataTable(true);
@@ -95,30 +186,25 @@ const MainContent = ({ sidebarOpen }: MainContentProps) => {
     }, 3000);
   };
 
-  const handleSaveSearchCriteria = () => {
-    if (Object.keys(searchCriteria).length === 0) {
-      alert("No search criteria to save. Please start a conversation to generate criteria.");
-      return;
+  const handleExportInstructions = () => {
+    // Get the latest criteria from localStorage
+    const savedCriteria = localStorage.getItem('searchCriteria');
+    let currentCriteria = searchCriteria;
+    
+    if (savedCriteria) {
+      try {
+        currentCriteria = JSON.parse(savedCriteria);
+      } catch (error) {
+        console.error('Error parsing saved criteria:', error);
+      }
     }
 
-    const criteriaData = {
-      criteria: searchCriteria,
-      savedAt: new Date().toISOString(),
-      id: `search-${Date.now()}`
-    };
-
-    const savedCriteria = localStorage.getItem('savedSearchCriteria');
-    const existingCriteria = savedCriteria ? JSON.parse(savedCriteria) : [];
-    existingCriteria.push(criteriaData);
-    localStorage.setItem('savedSearchCriteria', JSON.stringify(existingCriteria));
-
-    alert("Search criteria saved successfully!");
-    console.log("Saved criteria:", criteriaData);
-  };
-
-  const handleExportInstructions = () => {
-    if (Object.keys(searchCriteria).length === 0) {
-      alert("No search criteria to export. Please start a conversation to generate criteria.");
+    if (Object.keys(currentCriteria).length === 0) {
+      toast({
+        title: "No criteria to export",
+        description: "Please start a conversation to generate search criteria first.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -126,11 +212,11 @@ const MainContent = ({ sidebarOpen }: MainContentProps) => {
 Generated on: ${new Date().toLocaleDateString()}
 
 Search Criteria:
-${searchCriteria.location ? `• Location: ${searchCriteria.location}` : ''}
-${searchCriteria.jobTitles ? `• Job Titles: ${searchCriteria.jobTitles.join(', ')}` : ''}
-${searchCriteria.companySize ? `• Company Size: ${searchCriteria.companySize}` : ''}
-${searchCriteria.industry ? `• Industry: ${searchCriteria.industry}` : ''}
-${searchCriteria.estimatedMatches ? `• Estimated Matches: ${searchCriteria.estimatedMatches}` : ''}
+${currentCriteria.location ? `• Location: ${currentCriteria.location}` : ''}
+${currentCriteria.jobTitles ? `• Job Titles: ${currentCriteria.jobTitles.join(', ')}` : ''}
+${currentCriteria.companySize ? `• Company Size: ${currentCriteria.companySize}` : ''}
+${currentCriteria.industry ? `• Industry: ${currentCriteria.industry}` : ''}
+${currentCriteria.estimatedMatches ? `• Estimated Matches: ${currentCriteria.estimatedMatches}` : ''}
 
 Instructions:
 1. Go to LinkedIn Sales Navigator or LinkedIn Advanced Search
@@ -153,6 +239,11 @@ Tips:
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    toast({
+      title: "Instructions exported!",
+      description: "LinkedIn search instructions have been downloaded successfully.",
+    });
 
     console.log("Instructions exported:", instructions);
   };
